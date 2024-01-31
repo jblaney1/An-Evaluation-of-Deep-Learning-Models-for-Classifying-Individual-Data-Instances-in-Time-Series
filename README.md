@@ -116,17 +116,13 @@ the "Methods" section of the file "blaney_thesis.pdf". This file only
 changes the original files when specifically requested, otherwise a 
 new folder is created where all the processing results are saved.
 
-
- - stats.py
-   
+## stats.py
 Implements the statistical analysis functionality used for preliminary
 data analysis, saving the resulting statistical tables, and some nifty 
 print statements so that when saving is not desirable, the results can
 still be output for use outside the program.
 
-
- - trainer.py
-   
+## trainer.py
 Provides the functionality for training and testing deep neural networks
 as well as generative adverserial networks. This file also implements 
 the history visualization functionality. This comment was intentionally 
@@ -134,9 +130,7 @@ kept short because the exact training and testing implementations are
 well commented and well documented in the various reports for this 
 project. 
 
-
- - transitioner.py
-   
+## transitioner.py
 Analysis specifically requested to determine if the 
 models are still usable even when the accuracy is not on par with 
 medical standards. More to the point, this file tests for model 
