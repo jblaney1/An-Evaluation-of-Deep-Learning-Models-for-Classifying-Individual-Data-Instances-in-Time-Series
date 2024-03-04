@@ -49,12 +49,12 @@ from those files. For an example of this, see <stats.py>.
 ## ann.py
 Implements the pytorch model construction functions for both the 
 deep neural networks and the generative adverserial networks.
-This comments was intentionally kept short because the comments
-in the file are extensive and provide a detailed account what 
-each function does and how they work. For examples of how to 
-interface with these functions, see <ann_tester.py> or <gan_tester.py>.
+This comment was intentionally kept short because the comments
+in the file are extensive and provide a detailed account of 
+each function and how they work. For examples of how to interface 
+with these functions, see <ann_tester.py> or <gan_tester.py>.
 
-## ann_test.py
+## ann_tester.py
 Constructs saved models using the <ann.py> functionality, trains them
 using the <trainer.py> functionality, and tests them using the 
 <trainer.py> functionality. This file provides both a mask of other
@@ -134,7 +134,7 @@ project.
 Analysis specifically requested to determine if the 
 models are still usable even when the accuracy is not on par with 
 medical standards. More to the point, this file tests for model 
-predictions for transitions where class breaks occur in the data 
+predictions of transitions where class breaks occur in the data 
 regardless of the correct classification by the model. This is to 
 see if the models are identifying that a new class should be predicted
 even when they do not know if it is the correct class.
