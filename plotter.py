@@ -1,5 +1,4 @@
 """
-Project: 
 Advisor: Dr. Suresh Muknahallipatna
 Author: Josh Blaney
 
@@ -89,6 +88,7 @@ class Plotter:
         - df (dataframe): A dataframe can be specified if one has already been loaded
         - prompt_delay (int): How long to wait before asking if the user wants to quit
         - start_index (int): How many csv files to skip at the beginning
+        - skip_interval (int): The number of files to skip between plots
         - plot_arrangment (tuple): Tuple of (rows, cols) for plot display
         - c (string): Specifies the header to draw the color data from
         - overwrite (boolean): Should new plots be generated over old ones?
@@ -114,6 +114,7 @@ class Plotter:
                  df=None,
                  prompt_delay=10,
                  start_index=0,
+                 skip_interval=0,
                  plot_arrangment=None,
                  c=None,
                  overwrite=False):
@@ -180,6 +181,8 @@ class Plotter:
         self.delay = prompt_delay
         # Int which identifies how many data examples to skip at the start
         self.start_index = start_index
+        # Int which identifies the number of files to skip between saved plots
+        self.skip_interval = skip_interval
         # Int which counts the number of files removed during pruning
         self.remove_count = 0
 
@@ -216,12 +219,15 @@ class Plotter:
             # Used to track the total files to process
             file_count = len(self.file_list)
 
-            if save:
-                mpl.use('Agg')
+#            if save:
+#                mpl.use('Agg')
+
+            plot_range = range(self.start_index, file_count, skip_interval)
+            plot_count = len(plot_range)
 
             # Iterate over all files and either plot them and prompt the user to
             # delete or just plot and save without prompting the user
-            for i in range(self.start_index, file_count):
+            for i in plot_range:
 
                 if self.done:
                     break             # If the user wants to terminate the program done is True
@@ -232,7 +238,7 @@ class Plotter:
                 # iterates over all files, generates plots, and saves the plots
                 if save:
                     index += 1
-                    common.Print_Status('Auto Plot', index, file_count)
+                    common.Print_Status('Auto Plot', index, plot_count)
                     plot_file = self.file.replace(
                         self.sub_folder_logs, self.sub_folder_plot)
                     plot_file = plot_file.replace('csv', 'png')
@@ -290,8 +296,11 @@ class Plotter:
         file_count = len(self.file_list)
         index = 1
 
+        plot_range = range(self.start_index, file_count, skip_interval)
+        plot_count = len(plot_range)
+
         # Iterate over all files and create interactive plots for each
-        for i in range(self.start_index, file_count):
+        for i in plot_range:
             self.file = self.file_list[i]
             # Notify the programmer of the current file being processed
             print(self.file + " | File Number: " + str(i + 1))
@@ -719,6 +728,7 @@ if __name__ == '__main__':
     interactive = False  # Should the interactive labeling routine run?
     delay = 1000        # After how many files should the program offer to exit?
     start_index = 0  # What index should the program start at?
+    skip_interval = 1 # How many files should be skipped between plots
     overwrite = True    # Should new plots overwrite old ones?
     plot_legend = False
     low_from_data=True
@@ -731,7 +741,9 @@ if __name__ == '__main__':
     #base_path = 'A:/School/Research/Drill/Data/Composite/Expanded-Features/'
     #base_path = 'F:/blaney/Drill/Data/Composite/Expanded-Features'
     years = []
-    plot_type = 'Force'              # Header select variable for plotting
+    plot_types = ['Depth']
+#    plot_types = ['Force']
+#    plot_types = ['Depth', 'Force', 'Depth-vs-Force']              # Header select variable for plotting
     plot_headers = {'Depth': ['index', 'Depth mm'],
                     'Force': ['index', 'Force lbf'],
                     'Depth-vs-Force': ['Depth mm', 'Force lbf'],
@@ -741,7 +753,7 @@ if __name__ == '__main__':
     
     if model is None:  # Plot data from log files
         # Year subfolder specifier. See multi-line comment above
-        year = '2023-11-07_15-24-24_post'
+        year = '2024-02-12_09-28-00_post'
         years = None
         # Folder where the logs and plots should be loaded
         load_folder = 'generated'
@@ -749,10 +761,7 @@ if __name__ == '__main__':
         move_folder = ''
         # Folder where the log files are saved
         sub_folder_logs = 'Log Files'
-        # Folder where the plot files are saved
-        sub_folder_plot = f'Plot Files/{plot_type}'
 
-        headers = plot_headers[plot_type]
         plot_arrangement = None#[3,1]
         c = None
 
@@ -769,31 +778,37 @@ if __name__ == '__main__':
         plot_arrangement = [1, 2]
         c = ['prediction', 'label']
 
-    plotter = Plotter(path=base_path,
-                      year=year,
-                      headers=headers,
-                      expected_points=expected_points,
-                      years=years,
-                      load_folder=load_folder,
-                      save_folder=save_folder,
-                      move_folder=move_folder,
-                      sub_folder_logs=sub_folder_logs,
-                      sub_folder_plot=sub_folder_plot,
-                      interactive=interactive,
-                      plot_legend=plot_legend,
-                      low_from_data=low_from_data,
-                      high_from_data=high_from_data,
-                      df=None,
-                      prompt_delay=delay,
-                      start_index=start_index,
-                      plot_arrangment=plot_arrangement,
-                      c=c,
-                      overwrite=overwrite)
+    plt.close('all')
 
-    plotter.Build_File_List()
+    for plot_type in plot_types:
+        headers = plot_headers[plot_type]
+        sub_folder_plot = f'Plot Files/{plot_type}'
+        plotter = Plotter(path=base_path,
+                          year=year,
+                          headers=headers,
+                          expected_points=expected_points,
+                          years=years,
+                          load_folder=load_folder,
+                          save_folder=save_folder,
+                          move_folder=move_folder,
+                          sub_folder_logs=sub_folder_logs,
+                          sub_folder_plot=sub_folder_plot,
+                          interactive=interactive,
+                          plot_legend=plot_legend,
+                          low_from_data=low_from_data,
+                          high_from_data=high_from_data,
+                          df=None,
+                          prompt_delay=delay,
+                          start_index=start_index,
+                          skip_interval=skip_interval,
+                          plot_arrangment=plot_arrangement,
+                          c=c,
+                          overwrite=overwrite)
 
-    if interactive:
-        binding_id = plt.connect('button_press_event', plotter.on_click)
-        plotter.Auto_Plot_Interactive()
-    else:
-        plotter.Auto_Plot(save=save_plots)
+        plotter.Build_File_List()
+
+        if interactive:
+            binding_id = plt.connect('button_press_event', plotter.on_click)
+            plotter.Auto_Plot_Interactive()
+        else:
+            plotter.Auto_Plot(save=save_plots)

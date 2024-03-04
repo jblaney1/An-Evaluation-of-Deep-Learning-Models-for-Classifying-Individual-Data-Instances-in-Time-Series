@@ -1,5 +1,4 @@
 """
-Project: 
 Advisor: Dr. Suresh Muknahallipatna
 Author: Josh Blaney
 
@@ -26,12 +25,16 @@ Included with:
  - dataloader.py
  - gan_tester.py
  - labeler.py
- - metrics.py
+ - main.py
+ - messages.py
  - plotter.py
  - preprocessor.py 
  - stats.py
+ - stats_class.py
+ - stats_class_tester.py
  - trainer.py
  - transitioner.py
+ - transitioner_tester.py
  
 Notes:
 For more information about the project contact 

@@ -1,5 +1,4 @@
 """
-Project: 
 Advisor: Dr. Suresh Muknahallipatna
 Author: Josh Blaney
 

@@ -1,5 +1,4 @@
 """
-Project: 
 Advisor: Dr. Suresh Muknahallipatna
 Author: Josh Blaney
 
@@ -163,14 +162,14 @@ inputs:
     - std (numeric): If rescaling std should be provided
     - restrict_class (int): Restrict the data to one class? [0:3] 5 denotes all
     - sequence_length (int): used to adjust the indexing on the low index data 
+    - synthetic_path (string): The location of a synthetic instance to use in place of real data
 outputs:
     - features (numpy array): The selected ML features
     - labels (numpy array): The ML labels
 """
-def Load_Data(file, headers=['Depth mm'], label_header="Label", rescale=True, mean=[0.0], std=[1.0], restrict_class=5, sequence_length=0):
+def Load_Data(file, headers=['Depth mm'], label_header="Label", rescale=True, mean=[0.0], std=[1.0], restrict_class=5, sequence_length=0, synthetic_path=None):
     try:        
-        df = pd.read_csv(file)
-        columns = df.columns.values
+        df = pd.read_csv(file)[headers + [label_header]]
         
         if restrict_class < 5 and restrict_class >= 0:
             df = df[df[label_header] == restrict_class]
@@ -192,13 +191,8 @@ def Load_Data(file, headers=['Depth mm'], label_header="Label", rescale=True, me
                 print(file)
                 return None, None
 
-        labels = df[label_header].values
-
-        for header in headers:
-            columns = columns[columns != header]
-        
-        data = df.drop(columns=columns)
-        raw = data.values
+        labels = df[label_header].values        
+        raw = df[headers].values
         
         if rescale:
             features = Rescale(raw, mean, std)
@@ -248,7 +242,6 @@ outputs:
 """
 def Preload_Data(file_path, headers=None, columns_to_remove=None):
     try:
-        columns_to_remove = ["index", "Label", "Alarms", "Unnamed: 0"] if columns_to_remove is None else columns_to_remove
         files = glob.glob(file_path) if type(file_path) == str else file_path
         file_count = len(files)
         data = {}
@@ -272,15 +265,11 @@ def Preload_Data(file_path, headers=None, columns_to_remove=None):
                     sequence_length=None, limit=None, augment=None, headers=None, 
                     restrict_class=5, shuffle=True, classifier=False, one_hot=False, label_smooth=1.0)
     A function to automate csv data loading and preprocessing for training data of timeseries ML. 
-    Each file is loaded, passed to dataloader, passed to Tensorflows timeseries_dataset_from_array,
-    and then stored in a list according to load order (not necessarily alphabetical). Thus, to use 
-    the output dataset each index of the list must be trained on individually. This loading method
-    has been the most successful to date but also causes memory growth similar to a leak and is not
-    recommended on memory bound systems.
+    Each file is loaded, passed to the windowing function, appended to the dataset, and then
+    the dataset is passed to the batching function.
     
 inputs:
     - file_path (string): A glob ready location of the training data
-    - ann_type (int): Identifies the batching type for Batch Dataset
     - data_type (int): What is the structure of the data to be loaded? (linear - 1, rnn - 2)
     - batch_size (int): Controls the amount of data seen before making a network update
     - mean (numeric): Mean to center the data around, see Rescale() for more
@@ -294,14 +283,15 @@ inputs:
     - classifier (bool): Multi-class or binary classifier?
     - one_hot (bool): One hot or integer multi-class?
     - label_smooth (float): STD of the normal distribution to use for label smoothing
-    - desired_num_classes (int): The number of classes to keep, used for one_hot encoding
+    - smooth_percent (float): The percentage of data to smooth the labels of
 outputs:
     - dataset (list): A list of timeseries datasets ready for individual fit by a ML model
 """
 def Preload_Dataset(file_path, ann_type, data_type, batch_size, mean, std, 
                     sequence_length=None, limit=None, augment=None, headers=None, 
                     restrict_class=5, shuffle=True, classifier=False, one_hot=False, 
-                    label_smooth=1.0, desired_num_classes=None):
+                    label_smooth=None, smooth_percent=0.0, desired_num_classes=None,
+                    synth_limit=0, synthetic_path=None):
     try:
         if type(headers) == list:
             assert len(headers) == len(mean) and len(headers) == len(std), "Length of header, Mean, and STD lists must match"
@@ -332,14 +322,15 @@ def Preload_Dataset(file_path, ann_type, data_type, batch_size, mean, std,
                 class_std = data_stats[headers + " - std"].values
         else:
             augment_count = 0
- 
+
         length = 4096
         sequence_length = length if sequence_length is None else sequence_length
         
         print(f'[INFO] Prelaoding {early_stop_index} / {file_count} files from: {file_path}')
         
         stop_index = early_stop_index + augment_count
-        
+        smooth_count = int(smooth_percent * early_stop_index)
+
         for index in range(stop_index):
             access_index = random.randrange(0, file_count)
 
@@ -348,18 +339,20 @@ def Preload_Dataset(file_path, ann_type, data_type, batch_size, mean, std,
                              mean=mean,
                              std=std,
                              restrict_class=restrict_class,
-                             sequence_length=sequence_length)
+                             sequence_length=sequence_length,
+                             synthetic_path=synthetic_path)
 
             if x is not None and y is not None and len(y) > 0:
+                if index > early_stop_index:
+                    if index < early_stop_index + augment_count:
+                        x = Augment_Data(x, y, class_mean, class_std)
+                        common.save_csv(f'../Data/Augmented/{index-early_stop_index}.csv', x, y, headers)
+                        
                 if one_hot:
                     if desired_num_classes is None:
                         y = Make_One_Hot(y, outputs=5) if classifier else Make_One_Hot(y) 
                     else:
                         y = Make_One_Hot(y, outputs=desired_num_classes)
-
-                if index > early_stop_index:
-                    x = Augment_Data(x, y, class_mean, class_std)
-                    common.save_csv(f'../Data/Augmented/{index-early_stop_index}.csv', x, y, headers)
 
                 if data_type == 0: # CLASSIFIER
                     y = y[sequence_length:,::] if one_hot else y[sequence_length:]
@@ -380,20 +373,33 @@ def Preload_Dataset(file_path, ann_type, data_type, batch_size, mean, std,
                         data[:,:x.shape[0]] = np.reshape(x.T, (1,x.shape[0],x.shape[-1]))
                         y = np.reshape(y[-1,::],(1,y[-1,::].shape[-1])) if one_hot else np.ones((1,1))
 
-                if label_smooth is not None  and data_type == 1:
-                    if label_smooth > 0.0:
-                        y = y - 0.1 * np.random.normal(scale=label_smooth)
-                        for i, entry in enumerate(y): 
-                            if entry > 1:
-                                y[i] = 1.0
-                            elif entry < 0:
-                                y[i] = 0.0
+                if label_smooth is not None and index < smooth_count:
+                    y = y - np.random.normal(scale=label_smooth, size=y.shape)
 
                 labels = y if labels is None else np.append(labels, y, axis=0)
                 dataset = data if dataset is None else np.append(dataset, data, axis=0)
 
             common.Print_Status(process, index, stop_index)
    
+        if synth_limit > 0:
+            synth_dataset = np.zeros((synth_limit, sequence_length, len(headers)))
+            synth_file_list = glob.glob(f'{synthetic_path}/*.csv')
+            synth_file_count = len(synth_file_list)
+
+            print(f'[INFO] Loading {synth_limit} / {synth_file_count} Synthetic Sequences from: {synthetic_path}')
+
+            for i in range(synth_limit):
+                synth_df = pd.read_csv(synth_file_list[i%synth_file_count])
+                synth_dataset[i,:,:] = synth_df[headers].values
+
+                common.Print_Status('Loading Synth', i, synth_limit)
+
+            synth_labels = np.zeros((synth_limit, labels.shape[-1]))
+            synth_labels[:,synth_df["Label"][0]] = 1
+
+            labels = np.append(labels, synth_labels, axis=0)
+            dataset = np.append(dataset, synth_dataset, axis=0)
+
         if shuffle:
             dataset, labels = common.Shuffle(dataset, labels)
 

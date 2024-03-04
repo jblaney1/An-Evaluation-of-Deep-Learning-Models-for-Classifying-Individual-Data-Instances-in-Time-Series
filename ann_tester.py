@@ -1,5 +1,4 @@
 """
-Project: 
 Advisor: Dr. Suresh Muknahallipatna
 Author: Josh Blaney
 
@@ -10,7 +9,7 @@ Implements torch models through ann.py and trains them using train.py
 
 Functions:
  - cnn_ann()
- - linear_ann()
+ - residual_ann()
  - rnn_ann()
  - test_model(dictionary, model)
  - train_model(dictionary, model)
@@ -69,22 +68,22 @@ def cnn_ann(inputs, outputs, weights=None):
         optimizer = 'adam'
 
         dnn = ann.DNN(name='cnn', ann_type=3)
-        dnn.model, report = ann.create_model(model_type='cnn',
+        dnn.model, report = ann.create_model(model_type='cnn', # cuda 
                                              inputs=inputs, 
                                              outputs=outputs, 
-                                             neurons=[512, 256, 128, 64, 32, 16], 
+                                             neurons=[128, 64, 32, 16, 8],  
                                              activations=['leakyrelu', 'leakyrelu', 'softmax'], 
                                              linear_batch_normalization=True, 
-                                             linear_dropout=0.50,
+                                             linear_dropout=0.25,
                                              cnn_type='1d', 
-                                             channels=[128,],
+                                             channels=[64]*2, 
                                              kernels=(3,), 
-                                             strides=None, 
+                                             strides=1, 
                                              paddings=None, 
-                                             pooling=None, 
-                                             pooling_kernel=None, 
+                                             pooling='adaptivemaxpool1d', 
+                                             pooling_kernel=1, 
                                              cnn_batch_normalization=True, 
-                                             cnn_dropout=0.10, 
+                                             cnn_dropout=0.25, 
                                              cnn_sequence_length=dictionary['sequence length'])
         
         dnn.attribute_set('loss', loss)
@@ -99,8 +98,8 @@ def cnn_ann(inputs, outputs, weights=None):
 
 
 """
-    linear_ann(inputs, outputs, weights=None)
-    Implements a linear model. Change the parameters directly in this function
+    residual_ann(inputs, outputs, weights=None)
+    Implements a residual model. Change the parameters directly in this function
     to change the model. The input and output are automatically computed from 
     dictionary parameters are the bottom of this file.
     
@@ -111,19 +110,30 @@ inputs:
 outputs:
     - model (uwyo dnn): A DNN object which combines a pytorch model and report dict
 """
-def linear_ann(inputs, outputs, weights=None):
+def residual_ann(inputs, outputs, weights=None):
     try:
         loss = 'crossentropyloss' if outputs > 2 else 'bcewithlogitsloss'
-        optimizer = 'rmsprop'
+        optimizer = 'adam'
 
-        dnn = ann.DNN('linear', ann_type=1)
-        dnn.model, report = ann.create_model(model_type='linear', 
+        dnn = ann.DNN('cnn', ann_type=3)
+        dnn.model, report = ann.create_model(model_type='residual', # cuda 
                                              inputs=inputs, 
                                              outputs=outputs, 
-                                             neurons=[64, 16], 
-                                             activations=['relu', 'sigmoid'], 
+                                             neurons=[16], 
+                                             activations=['relu', 'softmax'], 
                                              linear_batch_normalization=True, 
-                                             linear_dropout=0.1)
+                                             linear_dropout=0.25,
+                                             residual_type='resnet',
+                                             residual_inputs=[64]*2,
+                                             downsample=None,
+                                             residual_norm_layer=None,
+                                             strides=None,
+                                             paddings=None,
+                                             bottleneck_channels=None,
+                                             residual_activation=None,
+                                             residual_operation=None,
+                                             cnn_type='1d',
+                                             cnn_sequence_length=dictionary['sequence length'])
         
         dnn.attribute_set('loss', loss)
         dnn.attribute_set('weight', weights)
@@ -156,16 +166,16 @@ def rnn_ann(inputs, outputs, weights=None):
         optimizer = 'adam'
 
         dnn = ann.DNN('rnn', ann_type=0)
-        dnn.model, report = ann.create_model(model_type='rnn', 
+        dnn.model, report = ann.create_model(model_type='rnn', # cuda
                                              inputs=inputs, 
                                              outputs=outputs, 
-                                             neurons=[128, 64, 32, 16, 8, 4],
+                                             neurons=[32, 16, 8],
                                              activations=['leakyrelu', 'softmax'], 
                                              linear_batch_normalization=True, 
-                                             linear_dropout=0.1,
+                                             linear_dropout=0.25,
                                              rnn_type='gru',
                                              hidden_size=128,
-                                             num_layers=4, 
+                                             num_layers=2, 
                                              bias=None, 
                                              batch_first=True, 
                                              rnn_dropout=0.25,
@@ -232,7 +242,8 @@ def test_model(dictionary, model):
         message += f'{common.Build_Confusion_Matrix_Output(confusion_matrix)}'
         common.Print(message)  
 
-        model.report['testing accuracy'] = acc
+        model.attribute_set('testing duration', time_elapsed)
+        model.attribute_set('testing accuracy', acc)
 
         common.Save_Results(f'{model_path}results.txt', model.report, confusion_matrix)
 
@@ -247,25 +258,8 @@ def test_model(dictionary, model):
 def train_model(dictionary, model):
     try:
         name = model.report['name']
-        model.attribute_set('std', dictionary['std'])
-        model.attribute_set('mean', dictionary['mean'])
-        model.attribute_set('epochs', dictionary['epochs'])
-        model.attribute_set('headers', dictionary['headers'])
-        model.attribute_set('data type', dictionary['data type'])
-        model.attribute_set('batch size', dictionary['batch size'])
-        model.attribute_set('load shuffle', dictionary['load shuffle'])
-        model.attribute_set('train shuffle', dictionary['train shuffle'])
-        model.attribute_set('restrict class', dictionary['restrict class'])
-        model.attribute_set('sequence length', dictionary['sequence length'])
+        model.report = {**model.report, **dictionary} 
 
-        model.attribute_set('device', dictionary['device'])
-
-        model.attribute_set('lr', dictionary['lr'])
-        model.attribute_set('patience', dictionary['patience'])
- 
-        model.attribute_set('train limit', dictionary['train limit'])
-        model.attribute_set('valid limit', dictionary['valid limit'])
-        
         data_path = '../Data/Labeled/processed-low-high/' if dictionary['data path'] is None else dictionary['data path']
         model_path = f'../Models/{name}/' if dictionary['model path'] is None else dictionary['model path']
         
@@ -285,7 +279,9 @@ def train_model(dictionary, model):
                                         restrict_class=report['restrict class'],
                                         shuffle=report['load shuffle'],
                                         one_hot=one_hot,
-                                        desired_num_classes=desired_num_classes)
+                                        desired_num_classes=desired_num_classes,
+                                        synth_limit=report['synth limit'],
+                                        synthetic_path=report['synthetic path'])
         
         if dictionary['valid']:
             valid_data = dl.Preload_Dataset(data_path + '/validation/*.csv',
@@ -303,7 +299,7 @@ def train_model(dictionary, model):
                                             desired_num_classes=desired_num_classes)
         else:
             valid_data = None
-        
+
         common.Validate_Dir(model_path)
 
         ann_trainer = trainer.DNN(ann=model)
@@ -319,15 +315,24 @@ def train_model(dictionary, model):
                           verbose=dictionary['verbose'])
 
         time_stop = datetime.datetime.now()
+
+        model = ann_trainer.ann
+        keys = list(model.history.keys())
+
         time_elapsed = time_stop - time_start
-        time_per_epoch = time_elapsed / dictionary['epochs']
+        time_per_epoch = time_elapsed / len(model.history[keys[0]])
         message += f'\n\tTraining completed at: {time_stop}\n'
         message += f'\tElapsed time: {time_elapsed}\n'
         message += f'\tTime per epoch: {time_per_epoch}'
         common.Print(message)
         
         model = ann_trainer.ann
-        
+
+        model.attribute_set('training start time', time_start)
+        model.attribute_set('training end time', time_stop)
+        model.attribute_set('training duration', time_elapsed) 
+        model.attribute_set('epoch duration', time_per_epoch)
+
         trainer.plot_history(model.history, save=True, save_path=model_path)
         model.save_model(model_path + 'model.pt')
         common.Save_History(f'{model_path}history.txt', model.history)
@@ -347,39 +352,68 @@ if __name__=='__main__':
 
     time_modifier = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    device = 'cuda:0'
+    # Restrict the data to a class for training models to predict a reduced class set
+    # 0 -> 3 | Binary classifier, reduce to a single class for classification (used for GAN)
+    # 5      | Multi-class classifier for all classes
+    # 6 -> 8 | Binary classifier, Reduce to a split, so classes 0 and 1 (6), 1 and 2 (7), 2 and 3 (8)
+    # 9 -> 12| Multi-class classifier but drop one class, class 0 (9), class 1 (10), class 2 (11), class 3 (12)
     restrict_class = 5 
-    model_type = 3
-    model_names = {1:'linear', 2:'rnn', 3:'cnn'}
+    model_type = 1
+    model_names = {1:'residual', 2:'rnn', 3:'cnn'}
     model_name = model_names[model_type]
 
+    # What headers should the model load? order matters for printing!
+    # ['Depth mm', 'Depth Delta', 'Depth Accel', 'Force lbf', 'Force Delta', 'Force Accel']
+    device = 'cuda:3'
+    headers = ['Depth mm']
+    headers = ['Force lbf']
+    headers = ['Depth mm', 'Force lbf']
+
+    # [64, 32, 26, 22, 13, 16] Max values by feature, same order as headers
+    max_values = {'Depth mm':64,
+                  'Depth Delta':32,
+                  'Depth Accel':26,
+                  'Force lbf':22,
+                  'Force Delta':13,
+                  'Force Accel':16}
+
+    # Sequence length [294, 110, 400, 170, 32, 32, 32, 32] -> restrict class [0, 1, 2, 3, 5, 6, 7, 8]
+    sequence_lengths = {0:294, 1:110, 2:400, 3:170, 5:32, 6:32, 7:32, 8:32}
+
+    std = []
+    for header in headers:
+        std.append(max_values[header])
+
+    mean = [0]*len(std)
+
+    synthetic_paths = {'Depth mm': '../Data/generated/2024-02-12_10-25-00/Log Files Accepted',
+                       'Force lbf': '../Data/generated/2024-02-12_09-25-24/Log Files Accepted',
+                       'Both':'../Data/generated/2024-02-30_00-00-00/Log Files Accepted'}
+
+    synthetic_path = synthetic_paths[headers[0]] if len(headers) < 2 else synthetic_paths['Both']
+
     dictionary = {# [64, 32, 26, 22, 13, 16] Max values by feature, same order as headers
-                  'std': [64, 22],          # The variance to z-normalize with
-                  'mean': [0, 0],           # The mean to z-normalize with
-                  'epochs': 500,           # The max number of training epochs
-                  'data type': 0,          # See dataloader for more information
-                  'batch size': 128,       # The size of one training batch
-                  # Sequence length [294, 110, 400, 170, 32, 32, 32, 32] -> restrict class [0, 1, 2, 3, 5, 6, 7, 8]
-                  'sequence length': 32, 
-                  # Restrict the data to a class for training models to predict a reduced class set
-                  # 0 -> 3 | Binary classifier, reduce to a single class for classification (used for GAN)
-                  # 5      | Multi-class classifier for all classes
-                  # 6 -> 8 | Binary classifier, Reduce to a split, so classes 0 and 1 (6), 1 and 2 (7), 2 and 3 (8)
+                  'std': std,               # The variance to z-normalize with
+                  'mean': mean,             # The mean to z-normalize with
+                  'epochs': 2048,           # The max number of training epochs
+                  'data type': 0,           # See dataloader for more information
+                  'batch size': 128,        # The size of one training batch
+                  'sequence length': sequence_lengths[restrict_class], 
                   'restrict class': restrict_class, 
-                  'device': device,      # The device to train and test on
-                  'lr': 0.0001,          # Learning rate
-                  'patience': 25,        # Patience for early stopping
+                  'device': device,         # The device to train and test on
+                  'lr': 0.0001,             # Learning rate
+                  'patience':  50,          # Patience for early stopping
                   # Where is the data located?
                   'data path':'../Data/Labeled/processed-low-high/',
-                  'valid': True,         # Include Validaiton?
-                  'train limit': 10000,  # Limit training files
-                  'valid limit': 1000,   # Limit validation files
-                  'tests limit': 1000,   # Limit testing files
+                  'synthetic path':synthetic_path,
+                  'valid': True,            # Include Validaiton?
+                  'train limit': 10000,     # Limit training files
+                  'valid limit': 1000,      # Limit validation files
+                  'tests limit': 1000,      # Limit testing files
+                  'synth limit': 200000,    # Synthetic sequences to include, must be pregenerated
                   # Where should the model be saved?
                   'model path': f'../Models/{model_name}/{restrict_class}/{time_modifier}/',
-                  # What headers should the model load?
-                  # ['Depth mm', 'Depth Delta', 'Depth Accel', 'Force lbf', 'Force Delta', 'Force Accel']
-                  'headers': ['Depth mm', 'Force lbf'],
+                  'headers': headers,    # What headers should the model load?
                   'load shuffle': True,  # Shuffle window while loading?
                   'train shuffle': True, # Shuffle batches during training?
                   'verbose':1,           # Print nothing [0], training info [1], everything [2]
@@ -392,15 +426,15 @@ if __name__=='__main__':
     elif dictionary['restrict class'] == 8:
        weights = [1, 3]
     elif dictionary['restrict class'] == 5:
-        weights = [1, 5, 1, 3]
+        weights = [1, 2, 1, 2]
     else:
         weights = None
 
     outputs = 4 if dictionary['restrict class'] == 5 else 2 
-    inputs = dictionary['sequence length'] * len(dictionary['headers']) if model_type == 1 else len(dictionary['headers'])
+    inputs = len(dictionary['headers'])
     
     if model_type == 1:    
-        model = linear_ann(inputs=inputs, outputs=outputs, weights=weights)
+        model = residual_ann(inputs=inputs, outputs=outputs, weights=weights)
     elif model_type == 2:
         model = rnn_ann(inputs=inputs, outputs=outputs, weights=weights)
     elif model_type == 3:

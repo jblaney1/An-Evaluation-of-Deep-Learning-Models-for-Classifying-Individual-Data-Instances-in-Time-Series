@@ -1,5 +1,4 @@
 """
-Project: 
 Advisor: Dr. Suresh Muknahallipatna
 Author: Josh Blaney
 
@@ -47,6 +46,7 @@ For more information about the project contact
 """
 
 # Outside Dependencies
+import glob
 import random
 import numpy as np
 import pandas as pd
@@ -81,8 +81,11 @@ def create_discriminator(dictionary):
         
         # Setup Discriminator Parameters
         outputs = 5 if multiclass else 2
+        outputs = outputs if dictionary['label smooth'] is None else 1
         output_activation = 'softmax' if multiclass else 'sigmoid' 
+        
         loss = 'crossentropyloss' if multiclass else 'bcewithlogitsloss'
+        loss = 'mseloss' if dictionary['label smooth'] is not None else loss
 
         dictionary['discriminator lr'] = 0.00001 if multiclass else 0.00001
         dictionary['discriminator optimizer'] = 'adam'
@@ -118,7 +121,7 @@ def create_discriminator(dictionary):
                                                 activations=['leakyrelu', output_activation], 
                                                 linear_batch_normalization=False, 
                                                 linear_dropout=linear_dropout,
-                                                rnn_type='gru', 
+                                                rnn_type='lstm', 
                                                 hidden_size=hidden_size,  
                                                 num_layers=num_layers, 
                                                 batch_first=True, 
@@ -201,19 +204,19 @@ def create_cnn_generator(dictionary):
         model, temp_dict = ann.create_model(model_type='cnn', 
                                             inputs=inputs, 
                                             outputs=outputs, 
-                                            neurons=[64, 32, seq_length], 
-                                            activations=['leakyrelu', 'leakyrelu', 'leakyrelu'],#'sigmoid'], 
-                                            linear_batch_normalization=True, 
-                                            linear_dropout=0.10,
+                                            neurons=[seq_length], 
+                                            activations=['leakyrelu', 'leakyrelu', 'sigmoid'], 
+                                            linear_batch_normalization=False, 
+                                            linear_dropout=0.0,
                                             cnn_type='1d', 
-                                            channels=[2, 8, 32, 64, 128, 64],  
+                                            channels=[2, 8, 32],  
                                             kernels=(3,), 
                                             strides=None, 
                                             paddings=None, 
                                             pooling=None, 
                                             pooling_kernel=None, 
-                                            cnn_batch_normalization=True, 
-                                            cnn_dropout=0.10,
+                                            cnn_batch_normalization=False, 
+                                            cnn_dropout=0.0,
                                             cnn_sequence_length=seq_length)
 
         temp_dict = populate_gan_dictionary(temp_dict, 'generator')
@@ -289,15 +292,15 @@ def create_rnn_generator(dictionary):
         model, temp_dict = ann.create_model(model_type='rnn', 
                                             inputs=inputs,
                                             outputs=outputs, 
-                                            neurons=[128, 256, seq_length], 
-                                            activations=['leakyrelu', 'leakyrelu'],
+                                            neurons=[64], 
+                                            activations=['leakyrelu', 'sigmoid'],
                                             linear_batch_normalization=True, 
-                                            linear_dropout=0.5,
-                                            rnn_type='gru', 
+                                            linear_dropout=0.0,
+                                            rnn_type='lstm', 
                                             hidden_size=128,
-                                            num_layers=4, 
+                                            num_layers=2, 
                                             batch_first=True,
-                                            rnn_dropout=0.5)
+                                            rnn_dropout=0.0)
         
         temp_dict = populate_gan_dictionary(temp_dict, 'generator')
         
@@ -329,7 +332,7 @@ inputs:
 outputs:
     -
 """
-def find_synthetic_similarity(ref_file, syn_path, functions, headers, restrict_class, results_path, thresholds=None, move_path=None, verbose=0):
+def find_synthetic_similarity(ref_file, syn_path, functions, headers, max_values, restrict_class, results_path, thresholds=None, move_path=None, verbose=0):
 
     try:
         save = thresholds is not None and move_path is not None
@@ -341,17 +344,21 @@ def find_synthetic_similarity(ref_file, syn_path, functions, headers, restrict_c
                   'Headers List':headers}
         
         columns = []
+        
+        syn_data = dl.Preload_Data(f'{syn_path}/*.csv', headers + ['Label'])
+        similarity_data = np.zeros((len(syn_data), len(headers)*len(functions)))
+
         ref_data = pd.read_csv(ref_file)
         ref_data = ref_data[ref_data['Label']==restrict_class]
-        ref_data = ref_data[headers]
-        
-        syn_data = dl.Preload_Data(f'{syn_path}/*.csv', headers)
-        similarity_data = np.zeros((len(syn_data), len(headers)*len(functions)))
+        ref_data = ref_data[headers][:syn_data[0].shape[0]]
+
+        for header in headers:
+            ref_data[header] /= max_values[header]
         
         syn_count = len(syn_data)
         function_count = len(functions)
         
-        for k in range(len(syn_data)):
+        for k in range(syn_count):
             move_file = True if save else False
             
             for j, header in enumerate(headers):
@@ -360,7 +367,7 @@ def find_synthetic_similarity(ref_file, syn_path, functions, headers, restrict_c
                     similarity_data[k,(j*function_count)+i] = similarity
                     
                     if save and move_file:
-                        if similarity > thresholds[header][function]['max'] or similarity < thresholds[header][function]['min']:
+                        if similarity > thresholds[header][function]:
                             move_file = False
             
             if move_file:
@@ -397,13 +404,12 @@ def find_synthetic_similarity(ref_file, syn_path, functions, headers, restrict_c
         common.Save_Report(f'{results_path}/similarity_results.txt', report)
         
         if save:
-            for index in files_to_move:
-                file = f'{move_path}/{index}.csv'
-                df = pd.DataFrame(syn_data[index], columns=headers)
-                df.to_csv(file, index=False)
+            common.Validate_Dir(move_path)
+            for i, index in enumerate(files_to_move):
+                pd.DataFrame(syn_data[index]).to_csv(f'{move_path}/{index}.csv', index=False)
+                common.Print_Status('File Move', i, len(files_to_move))
     
     except Exception as e:
-        print(function)
         common.Print_Error('Gan Tester -> Find Synthetic Similarity', e)
     
 
@@ -417,18 +423,19 @@ inputs:
     - load_path (string/list): The location of the generator model(s)
     - input_shpae (list): The number of datapoints to generate
     - concat_dim (int): The dimension which to concatenate data on
+    - label (int): The attempted class 
 outputs:
     - data (torch tensor): The resulting generated data
 """
-def generate_data(load_path, input_shape, concat_dim):
+def generate_data(load_path, input_shapes, concat_dims):
 
     model_count = len(load_path)
 
     for index, path in enumerate(load_path):
-        generator = torch.jit.load(path)
+        generator = torch.load(path)
         generator.eval()
 
-        inputs = torch.normal(mean=0.0, std=1.0, size=input_shape)
+        inputs = torch.normal(mean=0.50, std=0.25, size=input_shapes[index])
 
         if index == 0:
             data = generator(inputs).detach()
@@ -436,7 +443,7 @@ def generate_data(load_path, input_shape, concat_dim):
         else:
             data = torch.reshape(data, output_shape)
             temp = torch.reshape(generator(inputs).detach(), data.shape)
-            data = torch.cat((data, temp), dim=concat_dim)
+            data = torch.cat((data, temp), dim=concat_dims[index])
 
         common.Print_Status('Generate Synthetic Data', index, model_count)
 
@@ -483,22 +490,23 @@ def populate_gan_dictionary(dictionary, append):
     outputs:
      - 
 """
-def save_synthetic_data(data, save_path, feature_header, restrict_class, concat_dim, label_header='Label', write='w'):
+def save_synthetic_data(data, save_path, headers, restrict_class, concat_dim, label_header='Label', write='w'):
 
     sample_count = data.shape[0]
     folder_existed = not common.Validate_Dir(save_path)
 
-    if not folder_existed and write == 'w':
+    if write == 'w':
+        existing_file_count = len(glob.glob(f'{save_path}/*.csv')) if folder_existed else 0 
         for index, sample in enumerate(data):
-            df = pd.DataFrame(sample, columns=[feature_header])
+            df = pd.DataFrame(sample, columns=[headers])
             df[label_header] = restrict_class
-            df.to_csv(f'{save_path}/{index}.csv', index=False)
+            df.to_csv(f'{save_path}/{index+existing_file_count}.csv', index=False)
 
             common.Print_Status('Save Synthetic Data (Write)', index, sample_count)
 
     elif write == 'o':
         for index, sample in enumerate(data):
-            df = pd.DataFrame(sample, columns=[feature_header])
+            df = pd.DataFrame(sample, columns=[headers])
             df[label_header] = restrict_class
             df.to_csv(f'{save_path}/{index}.csv', index=False)
 
@@ -531,6 +539,7 @@ def start_testing(gan):
                                      classifier=gan.report['classifier'],
                                      one_hot=int(gan.report['discriminator outputs'])>1,
                                      label_smooth=None,
+                                     smooth_percent=0.0,
                                      desired_num_classes=desired_num_classes)
         
         gan.attribute_set('device', gan.report['device']) 
@@ -589,6 +598,7 @@ def start_training(gan):
                                       classifier=gan.report['classifier'],
                                       one_hot=int(gan.report['discriminator outputs'])>1,
                                       label_smooth=gan.report['label smooth'],
+                                      smooth_percent=gan.report['smooth percent'],
                                       desired_num_classes=desired_num_classes)
 
         gan.attribute_set('device', gan.report['device']) 
@@ -607,7 +617,10 @@ def start_training(gan):
                                     save=True, 
                                     save_path=save_path,
                                     overwrite=gan.report['overwrite'],
-                                    shuffle=gan.report['train shuffle'],
+                                    shuffle_data=gan.report['train shuffle'],
+                                    shuffle_labels=gan.report['label shuffle'],
+                                    minimum_accuracy=gan.report['min acc'],
+                                    maximum_accuracy=gan.report['max acc'],
                                     verbose=gan.report['verbose'])
 
         time_stop = datetime.datetime.now()
@@ -640,31 +653,54 @@ if __name__=='__main__':
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    process = 2
+    process = 2 
+
+    sequence_lengths = {0:334, 1:145, 2:497, 3:208, 5:32} # Training dataset
+    sequence_lengths = {0:170, 1:65,  2:170, 3:105, 5:32} # Validation dataset
+    sequence_lengths = {0:32, 1:32, 2:32, 3:32, 5:32}
+    
+    max_values = {'Depth mm':64,
+                  'Depth Delta':32,
+                  'Depth Accel':26,
+                  'Force lbf':22,
+                  'Force Delta':13,
+                  'Force Accel':16}
 
     # Train and Test GAN
     if process == 0:
         model_names = {1:'linear', 2:'rnn', 3:'cnn'}
 
-        restrict_class = 5 
-        device = 'cuda:1'
+        restrict_class = 1 
+        device = 'cuda:3'
+        
+        # Which headers should be included? Order matters!
+        # ['Depth mm', 'Depth Delta', 'Depth Accel', 'Force lbf', 'Force Delta', 'Force Accel']
+        headers = ['Depth mm'] if device == 'cuda:2' else ['Force lbf']
+#        headers = ['Depth mm', 'Force lbf'] if device == 'cuda:3' else headers
+
         classifier_string = 'multiclass' if restrict_class == 5 else 'binary'
+        
+        std = []
+        for header in headers:
+            std.append(max_values[header])
+           
+        mean = [0]*len(std)
 
         discriminator_type = 3 
         discriminator_string = model_names[discriminator_type]
 
-        generator_type = 3#int(device.split(':')[-1])
+        generator_type = 2#int(device.split(':')[-1])
         generator_name = model_names[generator_type]
 
         time_modifier = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        sequence_lengths = {0:294, 1:110, 2:400, 3:170, 5:32}
 
         dictionary = {#[64, 31.9, 25.59, 21.99, 12.84, 25.29] Feature max values, same order as headers
-                      'std': [1,1],                                         # Z-Norm standard deviation values
-                      'mean': [0,0],                                         # Z-Norm mean values
-                      'label smooth': None,                                # Standard deviation for label smoothing
+                      'std': std,                                         # Z-Norm standard deviation values
+                      'mean': mean,                                         # Z-Norm mean values
+                      'label smooth': 0.05,                                # Standard deviation for label smoothing
+                      'smooth percent': 0.1,                               # Percent of dataset to smooth labels of
                       'device': device,                                    # Device to run on
-                      'epochs': 16384,                                      # Number of epochs to train for
+                      'epochs': 3400,                                      # Number of epochs to train for
                       'classifier': classifier_string=='multiclass',       # Multi-class or  binary classification
                       'discriminator type':discriminator_type,             # 1: linear, 2:rnn, 3:cnn
                       'batch size': 128,                                     # The batch size for the dataloader
@@ -677,13 +713,11 @@ if __name__=='__main__':
                       'restrict class': restrict_class,
                       'generator class': 1,                                # Restrict generator to specific class?
                       'threshold': 0.8,                                    # Binary classifier threshold
-                      # Which headers should be included?
-                      # ['Depth mm', 'Depth Delta', 'Depth Accel', 'Force lbf', 'Force Delta', 'Force Accel']
-                      'headers':['Depth mm', 'Force lbf'], 
-                      'train limit':10000,                                 # Limit the number of training files? 
+                      'headers':headers, 
+                      'train limit':1000,                                 # Limit the number of training files? 
                       'tests limit':1000,                                  # Limit the number of testing files?
                       # Where will the data be loaded from?
-                      'data path train':'../Data/Labeled/processed-low-high/training',
+                      'data path train':'../Data/Labeled/processed-low-high/validation',
                       'data path tests':'../Data/Labeled/processed-low-high/testing',
                       # Where will synthetic data be saved?
                       'save path':f'../Data/generated/{time_modifier}/Log Files/',
@@ -693,8 +727,11 @@ if __name__=='__main__':
                       'overwrite':True,                                    # Overwrite existing files?
                       'load shuffle':True,                                 # Shuffle data on load? See dataloader.py for more
                       'train shuffle':True,                                # Shuffle data during training? See trainer.py for more
+                      'label shuffle':True,                                # Shuffle the real labels during training? Pairs with label smoothing
                       'load gan':None,#'../Models/gan/2023-11-07_15-24-24/generator.pt',
                       'prop gan':False,
+                      'min acc':0.80,                                       # Stop the generator training when the discriminator acc is below this threshold
+                      'max acc':0.20,                                       # Stop the discriminator training when the discriminator acc is above this threshold
                       'verbose':1}                                         # Print verbosity 0: None, 1: Minimal, 2:All
  
         gan = ann.GAN(name=generator_name, 
@@ -726,59 +763,70 @@ if __name__=='__main__':
     # Use a generator to generate data
     elif process == 1:
 
-        headers = ['Depth mm', 
-                   'Force lbf']
-
-        model_locations = ['2023-11-07_15-24-24',
-                           '2023-11-07_17-32-04']
-
-        load_paths = [f'../Models/gan/{model_locations[0]}/generator.pt',
-                      f'../Models/gan/{model_locations[1]}/generator.pt']
-
-        save_path = f'../Data/generated/{model_locations[0]}_new/'
-
         restrict_class = 1
-        sequence_lengths = {0:294, 1:110, 2:400, 3:170, 5:32}
+        num_samples = 48*65536
+        generator_types = [3, 3] 
+        headers = ['Depth mm']
+        headers = ['Force lbf']
+        headers = ['Depth mm','Force lbf']
 
-        generator_type = 3
-        num_samples = 10000
+        model_locations = ['2024-02-12_10-25-00']
+        model_locations = ['2024-02-12_09-25-24']
+        model_locations = ['2024-02-12_10-25-00', 
+                           '2024-02-12_09-25-24']
 
-        if generator_type == 1:
-            input_shape = (num_samples, 1)
-            concat_dim = 1
+        load_paths = []
+        for location in model_locations:
+            load_paths.append(f'../Models/gan/{location}/generator.pt')
+            
+        save_path = f'../Data/generated/{location}/Log Files Post' if len(model_locations) < 2 else '../Data/generated/2024-02-30_00-00-00/Log Files Post'
 
-        elif generator_type == 2:
-            input_shape = (num_samples, sequence_lengths[restrict_class], 1)
-            concat_dim = 2
+        concat_dims = []
+        input_shapes = []
+        for generator_type in generator_types:
+            if generator_type == 1:
+                input_shapes.append((num_samples, 1))
+                concat_dims.append(1)
 
-        elif generator_type == 3:
-            input_shape = (num_samples, 1, sequence_lengths[restrict_class])
-            concat_dim = 2
+            elif generator_type == 2:
+                input_shapes.append((num_samples, sequence_lengths[restrict_class], 1))
+                concat_dims.append(2)
 
-        data = generate_data(load_paths, input_shape, concat_dim=concat_dim)
-        save_synthetic_data(data, save_path, headers, restrict_class, concat_dim)
+            elif generator_type == 3:
+                input_shapes.append((num_samples, 1, sequence_lengths[restrict_class]))
+                concat_dims.append(2)
+
+        data = generate_data(load_paths, input_shapes, concat_dims=concat_dims)
+        save_synthetic_data(data, save_path, headers, restrict_class, concat_dims)
 
     # Find the similarity between synthetic data and a reference
     elif process == 2:
         
         verbose = 1
+        header = 'both'
         restrict_class = 1
-        time_modifier = '2023-11-07_15-24-24_post'
+        time_modifier = '2024-02-30_00-00-00' # depth
         base_file_path = '../Data/generated'
         results_file_path = f'{base_file_path}/{time_modifier}/'
-        reference_sequence_path = f'{base_file_path}/{time_modifier}/Log Files/618.csv'
-        synthetic_sequence_path = f'{base_file_path}/{time_modifier}/Log Files'
+        reference_sequence_path = f'../Data/Labeled/processed-low-high/validation/2022-05-11 16_08_11 002.csv'
+        synthetic_sequence_path = f'{base_file_path}/{time_modifier}/Log Files Post'
         
-        thresholds = None
-        move_path = None
+        thresholds = {'Depth mm':{'ed': 0.3, 'fc': 1.0, 'dtw': 0.025},
+                      'Force lbf':{'ed': 0.3, 'fc': 1.25, 'dtw': 0.025}}
+
+        move_path = f'{base_file_path}/{time_modifier}/Log Files Accepted'
         
-        comparison_headers = ['Depth mm', 'Force lbf']
-        comparison_metrics = ['ed','fc','dtw']
-        
+        comparison_headers = {'depth':['Depth mm'],
+                              'force':['Force lbf'],
+                              'both':['Depth mm', 'Force lbf']}
+
+        comparison_metrics = ['ed', 'fc', 'dtw']
+ 
         find_synthetic_similarity(reference_sequence_path, 
                                   synthetic_sequence_path, 
                                   comparison_metrics, 
-                                  comparison_headers, 
+                                  comparison_headers[header],
+                                  max_values, 
                                   restrict_class,
                                   results_file_path, 
                                   thresholds,

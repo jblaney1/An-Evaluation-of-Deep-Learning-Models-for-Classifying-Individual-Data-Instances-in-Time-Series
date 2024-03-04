@@ -1,5 +1,4 @@
 """
-Project: 
 Advisor: Dr. Suresh Muknahallipatna
 Author: Josh Blaney
 
@@ -780,7 +779,8 @@ class GAN():
          - save (bool): Should the generator output be saved after each epoch
          - save_path (string): The path to the folder to save generator output to
          - overwrite (bool): Overwrite existing prediciton files?
-         - shuffle (bool): Shuffle the training data each epoch?
+         - shuffle_data (bool): Shuffle the training data each epoch?
+         - shuffle_labels (bool): Shuffle the training labels each epoch?
          - verbose (int): How much information should be printed? [0,1,2]
         outputs:
          - history (dictionary of lists): A dictionary of training metrics
@@ -795,7 +795,10 @@ class GAN():
               save=False, 
               save_path='../Data/generated/', 
               overwrite=False, 
-              shuffle=False, 
+              shuffle_data=False,
+              shuffle_labels=False, 
+              minimum_accuracy=0.0,
+              maximum_accuracy=1.0,
               verbose=0):
         
         try:
@@ -812,6 +815,7 @@ class GAN():
 
             input_dim = self.discriminator_set_input_shape(batch_size, features.shape)
             generator_sequence_length = self.generator_set_input_shape(batch_size, features.shape)
+            generator_output_length = int(generator_sequence_length * batch_size) if self.report['generator type'] == 2 else int(batch_size)
             generator_output_shape = list(self.report['discriminator input shape train'])
 
             # Establish one loss function for both generator and discriminator
@@ -905,8 +909,16 @@ class GAN():
                 real_inputs = 0
                 gene_inputs = 0
  
-                if shuffle:
+                if shuffle_data:
                     features, labels = common.Shuffle(features, labels)
+
+                if shuffle_labels:
+                    features, labels = common.Shuffle_Labels(features, labels)
+
+                # How is training progressing, is one model dominating and should that model
+                # be suspended from training until the other model catches up?
+                train_discriminator = history['discriminator acc'][epoch-1] < maximum_accuracy
+                train_generator = history['discriminator acc'][epoch-1] > minimum_accuracy
 
                 # Iterate through our batches (housed within our training DataLoader object)
                 for i in range(train_batches):
@@ -921,7 +933,7 @@ class GAN():
                     x_batch = features[i].to(device)
 
                     # Train the discriminator on REAL data               
-                    ls, acc = train_helper(disc_model, x_batch, y_batch, loss_func, threshold)
+                    ls, acc = train_helper(disc_model, x_batch, y_batch, loss_func, threshold, training=train_discriminator)
 
                     # Store the training results in the history
                     history['discriminator loss'][epoch] += ls
@@ -956,7 +968,7 @@ class GAN():
                         targets = torch.zeros([batch_size, 1], dtype=torch.float).to(device)
 
                     # Train the discriminator on the SYNTHETIC data
-                    ls, acc = train_helper(disc_model, gene_batch, targets, loss_func, threshold)
+                    ls, acc = train_helper(disc_model, gene_batch, targets, loss_func, threshold, training=train_discriminator)
 
                     # Update the discriminators weights
                     disc_optimizer.step()
@@ -969,9 +981,10 @@ class GAN():
                             history[f'{key}'][epoch] += targets.shape[0]
 
                     # Zero the generator optimizer gradients
-                    for optimizer in gene_optimizers:
-                        if optimizer is not None:
-                            optimizer.zero_grad()
+                    if train_discriminator:
+                        for optimizer in gene_optimizers:
+                            if optimizer is not None:
+                                optimizer.zero_grad()
 
                     # Get a batch of random inputs for the generator
                     inputs = torch.normal(mean=0, std=1, size=self.report['generator input shape train']).to(device)
@@ -1001,12 +1014,13 @@ class GAN():
                     gene_inputs += targets.shape[0]
 
                     # Train the generator using the discriminator output
-                    ls, acc = train_helper(disc_model, gene_batch, targets, loss_func, threshold)
+                    ls, acc = train_helper(disc_model, gene_batch, targets, loss_func, threshold, training=train_generator)
 
                     # Update the generator weights
-                    for optimizer in gene_optimizers:
-                        if optimizer is not None:
-                           optimizer.step()
+                    if train_generator:
+                        for optimizer in gene_optimizers:
+                            if optimizer is not None:
+                               optimizer.step()
 
                     # Store the training results in the history 
                     history['generator loss'][epoch] += ls

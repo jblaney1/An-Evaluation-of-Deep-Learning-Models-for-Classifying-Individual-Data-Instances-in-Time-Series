@@ -1,5 +1,4 @@
 """ 
-Project: 
 Advisor: Dr. Suresh Muknahallipatna
 Author: Josh Blaney
 
@@ -29,6 +28,7 @@ Functions:
  - Save_Report(file_name, report)
  - Save_Results(file_name, trainer_report, model_report, confusion_matrix)
  - Shuffle(features, labels)
+ - Shuffle_Labels(features, labels)
  - Split_Folder(path)
  - Update_Confusion_Matrix(preds, targets)
  - Validate_Dir(directory)
@@ -494,6 +494,28 @@ def Shuffle(features, labels):
     assert len(features) == len(labels), 'Improper input dimensions to Common -> Shuffle. Features and Labels must have equal length.'
     p = np.random.permutation(len(features))
     return features[p], labels[p]
+    
+
+"""
+    Shuffle_Labels(features, labels)
+    A function implementing a common shuffling function
+    for sychronized shuffling of mutliple numpy arrays,
+    but instead of shuffling both features and labels
+    this function only shuffles the labels.
+
+    source: https://stackoverflow.com/questions/4601373/better-way-to-shuffle-two-numpy-arrays-in-unison
+
+    inputs:
+     - features (array): The original features array
+     - labels (array): The original labels array
+    outputs:
+     - features (array): The original features array
+     - labels (array): The shuffled labels array
+"""
+def Shuffle_Labels(features, labels):
+    assert len(features) == len(labels), 'Improper input dimensions to Common -> Shuffle. Features and Labels must have equal length.'
+    p = np.random.permutation(len(features))
+    return features, labels[p]
 
  
 """

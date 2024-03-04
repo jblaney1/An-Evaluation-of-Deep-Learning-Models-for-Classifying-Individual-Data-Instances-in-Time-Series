@@ -1,5 +1,4 @@
 """ 
-Project: 
 Advisor: Dr. Suresh Muknahallipatna
 Author: Josh Blaney
 
@@ -143,7 +142,7 @@ def custom_metrics(name, preds, targets):
     outputs:
      - (float): The resulting DTW score
 """
-def dynamic_time_warping(preds, targets, window_size=4):
+def dynamic_time_warping(preds, targets, window_size=8):
 
     loss = np.ones((preds.shape[-1], targets.shape[-1]))*1e9
     losses = np.ones((preds.shape[0],)) if len(preds.shape) > 1 else np.zeros((1,))
@@ -189,10 +188,8 @@ def dynamic_time_warping(preds, targets, window_size=4):
      - (float): The euclidean distance between the predictions and the targets
 """
 def euclidean_distance(preds, targets, p=2):
-    difference = preds - targets
-    power = np.emath.power(difference, p)
-    summation = np.sum(power)
-    return np.emath.power(summation, 1/p)
+    power = np.emath.power(preds-targets, p)
+    return np.emath.power(np.sum(power), 1/p)
 
 
 """
