@@ -33,8 +33,8 @@ For more information about the project contact
  - Josh Blaney -> jblaney1@uwyo.edu
 
 The comment structure for this work includes multi-line comment
-blocks for each function and class explaining what the purpose 
-of the function/class is and how to interface with it. Functions 
+blocks for each function and class that explaining the purpose 
+of the function/class and how to interface with it. Functions 
 which implement non-obvious functionality also have internal 
 comments. The top of each file includes a comment block very 
 similar to the one at the top of this file but also listing all
