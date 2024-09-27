@@ -1,6 +1,6 @@
 # An Evaluation of Deep Learning Models for Classifying Individual Data Instances in Time Series
 
-[Link to Paper](https://www.proquest.com/openview/d169e8bd85f63a24471dd06d74b7ac32/1?pq-origsite=gscholar&cbl=18750&diss=y)
+[Link to Thesis](https://www.proquest.com/openview/d169e8bd85f63a24471dd06d74b7ac32/1?pq-origsite=gscholar&cbl=18750&diss=y)
 
 Advisor: Dr. Suresh Muknahallipatna
 
