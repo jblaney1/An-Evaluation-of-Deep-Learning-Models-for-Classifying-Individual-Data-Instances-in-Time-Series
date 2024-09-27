@@ -6,8 +6,6 @@ Advisor: Dr. Suresh Muknahallipatna
 
 Author: Josh Blaney
 
-Last Update: 01/26/2024
-
 ## Purpose:
 To provide a brief overview of the purpose and provided functionality of each 
 python file listed in the "Included with" section below. If you have more 
